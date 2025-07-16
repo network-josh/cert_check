@@ -1,6 +1,6 @@
 #Python
-pip install cryptography tk
+cryptography
+tk
 
-Powershell
-openssl
+
 
