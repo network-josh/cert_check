@@ -74,3 +74,5 @@ def compare(folder):
     else:
         print("❌ Mismatch detected:")
         for k, (f, m) in found.items():
+            print(f"   - {k.upper()}: {os.path.basename(f)} (modulus: {hex(m)})")
+            
