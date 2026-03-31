@@ -1,6 +1,2 @@
-#Python
 cryptography
-tk
-
-
-
+PySide6

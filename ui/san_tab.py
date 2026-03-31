@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QLineEdit, QFileDialog
 )
+from cryptography.x509.oid import NameOID
 from core.crypto_ops import load_pem_object
 from core.san_ops import parse_user_sans, apply_default_dns_sans, format_ms_pki_san_string
 from core.errors import CertToolError
@@ -66,7 +67,7 @@ class SanTab(QWidget):
             csr = obj  # type: ignore
             cn = None
             for attr in csr.subject:
-                if attr.oid == csr.subject.rfc4514_string.__self__.OID_COMMON_NAME:  # hacky, will fix later
+                if attr.oid == NameOID.COMMON_NAME:
                     cn = attr.value
                     break
         except Exception as e:
