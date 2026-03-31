@@ -8,13 +8,14 @@ from typing import List, Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QFileDialog, QComboBox, QListWidget,
-    QCheckBox, QGroupBox, QGridLayout,
+    QCheckBox, QGroupBox, QGridLayout, QRadioButton, QButtonGroup,
 )
 
 from core.app_config import load_app_config
 from core.csr_ops import (
     generate_csr_and_keys, CsrSpec,
     SubjectDefaults, KeyUsageDefaults, EkuDefaults,
+    is_key_encrypted,
 )
 from core.csr_templates import list_templates, load_template, save_template
 from core.san_ops import parse_user_sans, SanEntry, SanType
@@ -32,7 +33,7 @@ class CsrTab(QWidget):
         self.setLayout(layout)
 
         # ── Template ──────────────────────────────────────────────────
-        tpl_group = QGroupBox("Template")
+        tpl_group  = QGroupBox("Template")
         tpl_layout = QHBoxLayout()
         tpl_group.setLayout(tpl_layout)
 
@@ -52,12 +53,12 @@ class CsrTab(QWidget):
         tpl_layout.addWidget(self.edit_tpl_name)
         self.btn_save_tpl = QPushButton("Save Template")
         tpl_layout.addWidget(self.btn_save_tpl)
-
         tpl_layout.addStretch(1)
+
         layout.addWidget(tpl_group)
 
         # ── Common Name + SANs ────────────────────────────────────────
-        san_group = QGroupBox("Common Name and Subject Alternative Names")
+        san_group  = QGroupBox("Common Name and Subject Alternative Names")
         san_layout = QVBoxLayout()
         san_group.setLayout(san_layout)
 
@@ -85,54 +86,106 @@ class CsrTab(QWidget):
 
         layout.addWidget(san_group)
 
-        # ── Key & Usage ───────────────────────────────────────────────
-        key_group = QGroupBox("Key and Usage")
-        key_grid = QGridLayout()
-        key_group.setLayout(key_grid)
+        # ── Key Source ────────────────────────────────────────────────
+        key_group  = QGroupBox("Private Key")
+        key_layout = QVBoxLayout()
+        key_group.setLayout(key_layout)
 
-        key_grid.addWidget(QLabel("Key Size:"), 0, 0)
+        radio_row = QHBoxLayout()
+        self.radio_new      = QRadioButton("Generate new key")
+        self.radio_existing = QRadioButton("Use existing key")
+        self.radio_new.setChecked(True)
+        self._radio_group = QButtonGroup()
+        self._radio_group.addButton(self.radio_new)
+        self._radio_group.addButton(self.radio_existing)
+        radio_row.addWidget(self.radio_new)
+        radio_row.addWidget(self.radio_existing)
+        radio_row.addStretch(1)
+        key_layout.addLayout(radio_row)
+
+        # New key options
+        self._new_key_widget = QWidget()
+        new_key_grid = QGridLayout()
+        new_key_grid.setContentsMargins(0, 0, 0, 0)
+        self._new_key_widget.setLayout(new_key_grid)
+
+        new_key_grid.addWidget(QLabel("Key size:"), 0, 0)
         self.combo_key_size = QComboBox()
         self.combo_key_size.addItems(["2048", "4096"])
-        key_grid.addWidget(self.combo_key_size, 0, 1)
+        new_key_grid.addWidget(self.combo_key_size, 0, 1)
+
+        pw_row = QHBoxLayout()
+        self.chk_encrypt_key = QCheckBox("Password-protect output key:")
+        self.edit_new_key_pw = QLineEdit()
+        self.edit_new_key_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self.edit_new_key_pw.setPlaceholderText("password")
+        self.edit_new_key_pw.setEnabled(False)
+        pw_row.addWidget(self.chk_encrypt_key)
+        pw_row.addWidget(self.edit_new_key_pw)
+        pw_row.addStretch(1)
+        new_key_grid.addLayout(pw_row, 1, 0, 1, 3)
+
+        key_layout.addWidget(self._new_key_widget)
+
+        # Existing key options
+        self._existing_key_widget = QWidget()
+        exist_grid = QGridLayout()
+        exist_grid.setContentsMargins(0, 0, 0, 0)
+        self._existing_key_widget.setLayout(exist_grid)
+
+        exist_grid.addWidget(QLabel("Key file:"), 0, 0)
+        self.edit_existing_key_path = QLineEdit()
+        self.edit_existing_key_path.setReadOnly(True)
+        self.edit_existing_key_path.setPlaceholderText("(none)")
+        exist_grid.addWidget(self.edit_existing_key_path, 0, 1)
+        self.btn_browse_existing_key = QPushButton("Browse")
+        exist_grid.addWidget(self.btn_browse_existing_key, 0, 2)
+
+        # Password row — shown only when encryption detected
+        self._exist_pw_label = QLabel("Password:")
+        self.edit_existing_key_pw = QLineEdit()
+        self.edit_existing_key_pw.setEchoMode(QLineEdit.EchoMode.Password)
+        self.edit_existing_key_pw.setPlaceholderText("key password")
+        self._exist_pw_label.setVisible(False)
+        self.edit_existing_key_pw.setVisible(False)
+        exist_grid.addWidget(self._exist_pw_label,     1, 0)
+        exist_grid.addWidget(self.edit_existing_key_pw, 1, 1)
+
+        key_layout.addWidget(self._existing_key_widget)
+        self._existing_key_widget.setVisible(False)
+
+        layout.addWidget(key_group)
+
+        # ── Key Usage ─────────────────────────────────────────────────
+        usage_group = QGroupBox("Key Usage")
+        usage_grid  = QGridLayout()
+        usage_group.setLayout(usage_grid)
 
         self.chk_dig_sig  = QCheckBox("Digital Signature (KU)")
         self.chk_key_enc  = QCheckBox("Key Encipherment (KU)")
         self.chk_srv_auth = QCheckBox("Server Authentication (EKU)")
         self.chk_cli_auth = QCheckBox("Client Authentication (EKU)")
-        key_grid.addWidget(self.chk_dig_sig,  1, 0)
-        key_grid.addWidget(self.chk_key_enc,  1, 1)
-        key_grid.addWidget(self.chk_srv_auth, 2, 0)
-        key_grid.addWidget(self.chk_cli_auth, 2, 1)
+        usage_grid.addWidget(self.chk_dig_sig,  0, 0)
+        usage_grid.addWidget(self.chk_key_enc,  0, 1)
+        usage_grid.addWidget(self.chk_srv_auth, 1, 0)
+        usage_grid.addWidget(self.chk_cli_auth, 1, 1)
 
-        layout.addWidget(key_group)
+        layout.addWidget(usage_group)
 
-        # ── Output ────────────────────────────────────────────────────
-        out_group = QGroupBox("Output")
-        out_layout = QVBoxLayout()
+        # ── Output dir ────────────────────────────────────────────────
+        out_group  = QGroupBox("Output Directory")
+        out_layout = QHBoxLayout()
         out_group.setLayout(out_layout)
 
-        out_dir_row = QHBoxLayout()
-        out_dir_row.addWidget(QLabel("Directory:"))
         self.edit_out_dir = QLineEdit()
-        out_dir_row.addWidget(self.edit_out_dir)
+        out_layout.addWidget(self.edit_out_dir)
         self.btn_browse_out = QPushButton("Browse")
-        out_dir_row.addWidget(self.btn_browse_out)
-        out_layout.addLayout(out_dir_row)
-
-        pw_row = QHBoxLayout()
-        self.chk_encrypt_key = QCheckBox("Password-protect key:")
-        self.edit_password = QLineEdit()
-        self.edit_password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.edit_password.setEnabled(False)
-        self.edit_password.setPlaceholderText("password")
-        pw_row.addWidget(self.chk_encrypt_key)
-        pw_row.addWidget(self.edit_password)
-        out_layout.addLayout(pw_row)
+        out_layout.addWidget(self.btn_browse_out)
 
         layout.addWidget(out_group)
 
         # ── Generate ──────────────────────────────────────────────────
-        self.btn_generate = QPushButton("Generate CSR + Key")
+        self.btn_generate = QPushButton("Generate CSR")
         layout.addWidget(self.btn_generate)
         layout.addStretch(1)
 
@@ -142,23 +195,24 @@ class CsrTab(QWidget):
         self.btn_add_san.clicked.connect(self._add_san)
         self.btn_seed_sans.clicked.connect(self._seed_sans)
         self.btn_remove_san.clicked.connect(self._remove_san)
-        self.btn_browse_out.clicked.connect(self._browse_output)
-        self.chk_encrypt_key.toggled.connect(self.edit_password.setEnabled)
-        self.btn_generate.clicked.connect(self._generate)
         self.edit_san_entry.returnPressed.connect(self._add_san)
+        self.radio_new.toggled.connect(self._on_key_source_toggled)
+        self.btn_browse_existing_key.clicked.connect(self._browse_existing_key)
+        self.chk_encrypt_key.toggled.connect(self.edit_new_key_pw.setEnabled)
+        self.btn_browse_out.clicked.connect(self._browse_output)
+        self.btn_generate.clicked.connect(self._generate)
 
         self._load_defaults()
         self._refresh_templates()
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Defaults / template helpers
     # ------------------------------------------------------------------
 
     def _load_defaults(self) -> None:
         cfg = load_app_config()
         self.edit_out_dir.setText(cfg.get("default_output_dir", "C:/Certs"))
-        size = str(cfg.get("default_key_size", 2048))
-        idx = self.combo_key_size.findText(size)
+        idx = self.combo_key_size.findText(str(cfg.get("default_key_size", 2048)))
         if idx >= 0:
             self.combo_key_size.setCurrentIndex(idx)
         self.chk_dig_sig.setChecked(cfg.get("ku_digital_signature", True))
@@ -174,6 +228,29 @@ class CsrTab(QWidget):
         self.san_list.clear()
         for san in self._sans:
             self.san_list.addItem(f"{san.type.value}={san.value}")
+
+    # ------------------------------------------------------------------
+    # Key source toggle
+    # ------------------------------------------------------------------
+
+    def _on_key_source_toggled(self, generate_new: bool) -> None:
+        self._new_key_widget.setVisible(generate_new)
+        self._existing_key_widget.setVisible(not generate_new)
+
+    def _browse_existing_key(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Private Key",
+            filter="Key files (*.key *.pem);;All files (*.*)",
+        )
+        if not path:
+            return
+        self.edit_existing_key_path.setText(path)
+        encrypted = is_key_encrypted(path)
+        self._exist_pw_label.setVisible(encrypted)
+        self.edit_existing_key_pw.setVisible(encrypted)
+        if not encrypted:
+            self.edit_existing_key_pw.clear()
 
     # ------------------------------------------------------------------
     # Template slots
@@ -214,16 +291,20 @@ class CsrTab(QWidget):
             organization=cfg.get("subject_org") or None,
             organizational_unit=cfg.get("subject_ou") or None,
         )
-        ku  = KeyUsageDefaults(
-            digital_signature=self.chk_dig_sig.isChecked(),
-            key_encipherment=self.chk_key_enc.isChecked(),
-        )
-        eku = EkuDefaults(
-            server_auth=self.chk_srv_auth.isChecked(),
-            client_auth=self.chk_cli_auth.isChecked(),
-        )
         try:
-            save_template(name, subject, ku, eku, int(self.combo_key_size.currentText()))
+            save_template(
+                name,
+                subject,
+                KeyUsageDefaults(
+                    digital_signature=self.chk_dig_sig.isChecked(),
+                    key_encipherment=self.chk_key_enc.isChecked(),
+                ),
+                EkuDefaults(
+                    server_auth=self.chk_srv_auth.isChecked(),
+                    client_auth=self.chk_cli_auth.isChecked(),
+                ),
+                int(self.combo_key_size.currentText()),
+            )
         except CertToolError as e:
             self.log_emitter.message.emit(f"Failed to save template: {e}", "CSR")
             return
@@ -269,7 +350,7 @@ class CsrTab(QWidget):
         self._refresh_san_list()
 
     # ------------------------------------------------------------------
-    # Output / generate slots
+    # Output / generate
     # ------------------------------------------------------------------
 
     def _browse_output(self) -> None:
@@ -282,21 +363,41 @@ class CsrTab(QWidget):
         if not cn:
             self.log_emitter.message.emit("Common Name is required.", "CSR")
             return
-
         out_dir = self.edit_out_dir.text().strip()
         if not out_dir:
             self.log_emitter.message.emit("Output directory is required.", "CSR")
             return
 
-        password: Optional[str] = None
-        if self.chk_encrypt_key.isChecked():
-            pw = self.edit_password.text()
-            if not pw:
+        # Key source
+        use_existing = self.radio_existing.isChecked()
+        existing_key_path: Optional[str] = None
+        existing_key_pw:   Optional[str] = None
+        key_password:      Optional[str] = None
+
+        if use_existing:
+            existing_key_path = self.edit_existing_key_path.text().strip()
+            if not existing_key_path:
                 self.log_emitter.message.emit(
-                    "Password cannot be empty when key encryption is enabled.", "CSR"
+                    "Browse for an existing key file first.", "CSR"
                 )
                 return
-            password = pw
+            if self.edit_existing_key_pw.isVisible():
+                pw = self.edit_existing_key_pw.text()
+                if not pw:
+                    self.log_emitter.message.emit(
+                        "Key is encrypted — enter the password.", "CSR"
+                    )
+                    return
+                existing_key_pw = pw
+        else:
+            if self.chk_encrypt_key.isChecked():
+                pw = self.edit_new_key_pw.text()
+                if not pw:
+                    self.log_emitter.message.emit(
+                        "Password cannot be empty when key encryption is enabled.", "CSR"
+                    )
+                    return
+                key_password = pw
 
         cfg = load_app_config()
         spec = CsrSpec(
@@ -318,19 +419,26 @@ class CsrTab(QWidget):
                 client_auth=self.chk_cli_auth.isChecked(),
             ),
             key_size=int(self.combo_key_size.currentText()),
+            existing_key_path=existing_key_path,
+            existing_key_password=existing_key_pw,
         )
 
         try:
-            result = generate_csr_and_keys(spec, out_dir, key_password=password)
+            result = generate_csr_and_keys(spec, out_dir, key_password=key_password)
         except CertToolError as e:
             self.log_emitter.message.emit(f"Generation failed: {e}", "CSR")
             return
 
-        self.log_emitter.message.emit(f"CSR:          {result.csr_pem}", "CSR")
-        self.log_emitter.message.emit(f"Key:          {result.key_unencrypted}", "CSR")
-        if result.key_encrypted:
+        self.log_emitter.message.emit(f"CSR:  {result.csr_pem}", "CSR")
+        if result.key_reused:
             self.log_emitter.message.emit(
-                f"Key (enc):    {result.key_encrypted}", "CSR"
+                f"Key:  {existing_key_path}  (reused — not copied)", "CSR"
             )
+        else:
+            self.log_emitter.message.emit(f"Key:  {result.key_unencrypted}", "CSR")
+            if result.key_encrypted:
+                self.log_emitter.message.emit(
+                    f"Key (enc):  {result.key_encrypted}", "CSR"
+                )
         if result.csr_der:
-            self.log_emitter.message.emit(f"CSR (DER):    {result.csr_der}", "CSR")
+            self.log_emitter.message.emit(f"CSR (DER):  {result.csr_der}", "CSR")

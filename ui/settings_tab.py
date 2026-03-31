@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
     QGroupBox, QGridLayout, QScrollArea,
 )
 
-from core.app_config import DEFAULT_APP_CONFIG
 from .types import LogEmitterType
 
 
@@ -19,7 +18,6 @@ class SettingsTab(QWidget):
         self.commit_callback = commit_callback
         self.log_emitter     = log_emitter
 
-        # Wrap content in a scroll area so it doesn't get cramped
         outer = QVBoxLayout()
         self.setLayout(outer)
 
@@ -50,23 +48,39 @@ class SettingsTab(QWidget):
         layout.addWidget(ui_group)
 
         # ── Paths ─────────────────────────────────────────────────────
-        path_group = QGroupBox("Paths  (default: C:/Certs/...)")
+        path_group = QGroupBox("Paths")
         path_grid  = QGridLayout()
         path_group.setLayout(path_grid)
 
+        # Base directory — controls where cert_tool_app.json itself is saved
+        path_grid.addWidget(QLabel("Base directory:"), 0, 0)
+        self.edit_base_dir = QLineEdit(app_config.get("base_dir", "C:/Certs"))
+        path_grid.addWidget(self.edit_base_dir, 0, 1)
+        btn_base = QPushButton("Browse")
+        btn_base.clicked.connect(lambda: self._browse_dir(self.edit_base_dir))
+        path_grid.addWidget(btn_base, 0, 2)
+
+        note = QLabel(
+            "The config file (cert_tool_app.json) is saved inside the base directory.\n"
+            "Changing this relocates the config on next Save."
+        )
+        note.setWordWrap(True)
+        path_grid.addWidget(note, 1, 0, 1, 3)
+
+        # Other derived paths
         self._path_edits: dict[str, QLineEdit] = {}
-        path_fields = [
+        derived_fields = [
             ("log_dir",            "Log directory:"),
             ("default_output_dir", "Default output directory:"),
             ("templates_dir",      "Templates directory:"),
         ]
-        for row, (key, label) in enumerate(path_fields):
-            path_grid.addWidget(QLabel(label), row, 0)
-            edit = QLineEdit(app_config.get(key, DEFAULT_APP_CONFIG[key]))
-            path_grid.addWidget(edit, row, 1)
+        for row_offset, (key, label) in enumerate(derived_fields, start=2):
+            path_grid.addWidget(QLabel(label), row_offset, 0)
+            edit = QLineEdit(app_config.get(key, ""))
+            path_grid.addWidget(edit, row_offset, 1)
             btn = QPushButton("Browse")
             btn.clicked.connect(lambda checked=False, e=edit: self._browse_dir(e))
-            path_grid.addWidget(btn, row, 2)
+            path_grid.addWidget(btn, row_offset, 2)
             self._path_edits[key] = edit
 
         layout.addWidget(path_group)
@@ -136,6 +150,8 @@ class SettingsTab(QWidget):
         self.app_config["theme"]              = self.combo_theme.currentText()
         self.app_config["console_timestamps"] = self.chk_timestamps.isChecked()
 
+        self.app_config["base_dir"] = self.edit_base_dir.text().strip()
+
         for key, edit in self._path_edits.items():
             self.app_config[key] = edit.text().strip()
 
@@ -149,4 +165,7 @@ class SettingsTab(QWidget):
         self.app_config["eku_client_auth"]      = self.chk_cli_auth.isChecked()
 
         self.commit_callback(self.app_config)
-        self.log_emitter.message.emit("Settings saved.", "SETTINGS")
+        self.log_emitter.message.emit(
+            f"Settings saved to {self.app_config['base_dir']}/cert_tool_app.json",
+            "SETTINGS"
+        )
