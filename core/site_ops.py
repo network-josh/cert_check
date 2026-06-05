@@ -759,13 +759,13 @@ def format_site_report(result: SiteVerificationResult) -> str:
     lines.append(f"SHA-256: {fp}")
 
     lines += ["", "Chain As Served", "-" * 40]
-        all_certs = [leaf] + list(result.chain_certs)
-        for i, cert in enumerate(all_certs):
-            subj = cert.subject.rfc4514_string()
-            is_leaf = (i == 0)
-            is_root = cert.subject == cert.issuer
-            tag = " (leaf)" if is_leaf else (" (self-signed root)" if is_root else "")
-            lines.append(f"[{i}]  {subj}{tag}")
+    all_certs = [leaf] + list(result.chain_certs)
+    for i, cert in enumerate(all_certs):
+        subj = cert.subject.rfc4514_string()
+        is_leaf = (i == 0)
+        is_root = cert.subject == cert.issuer
+        tag = " (leaf)" if is_leaf else (" (self-signed root)" if is_root else "")
+        lines.append(f"[{i}]  {subj}{tag}")
 
     host = result.host
     port = result.port
