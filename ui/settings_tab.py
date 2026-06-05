@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QCheckBox, QLineEdit, QFileDialog,
-    QGroupBox, QGridLayout, QScrollArea,
+    QGroupBox, QGridLayout, QScrollArea, QSpinBox,
 )
 
 from .types import LogEmitterType
@@ -132,6 +132,24 @@ class SettingsTab(QWidget):
 
         layout.addWidget(csr_group)
 
+        # ── Network ───────────────────────────────────────────────────
+        net_group = QGroupBox("Network")
+        net_grid  = QGridLayout()
+        net_group.setLayout(net_grid)
+
+        net_grid.addWidget(QLabel("AIA fetch timeout:"), 0, 0)
+        timeout_row = QHBoxLayout()
+        self.spin_aia_timeout = QSpinBox()
+        self.spin_aia_timeout.setRange(1, 120)
+        self.spin_aia_timeout.setValue(app_config.get("aia_fetch_timeout", 10))
+        self.spin_aia_timeout.setSuffix(" seconds")
+        timeout_row.addWidget(self.spin_aia_timeout)
+        timeout_row.addWidget(QLabel("(per AIA caIssuers download)"))
+        timeout_row.addStretch(1)
+        net_grid.addLayout(timeout_row, 0, 1)
+
+        layout.addWidget(net_group)
+
         # ── Save ──────────────────────────────────────────────────────
         self.btn_save = QPushButton("Save Settings")
         layout.addWidget(self.btn_save)
@@ -163,6 +181,7 @@ class SettingsTab(QWidget):
         self.app_config["ku_key_encipherment"]  = self.chk_key_enc.isChecked()
         self.app_config["eku_server_auth"]      = self.chk_srv_auth.isChecked()
         self.app_config["eku_client_auth"]      = self.chk_cli_auth.isChecked()
+        self.app_config["aia_fetch_timeout"]    = self.spin_aia_timeout.value()
 
         self.commit_callback(self.app_config)
         self.log_emitter.message.emit(

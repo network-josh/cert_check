@@ -42,6 +42,7 @@ _STATIC_DEFAULTS: Dict[str, Any] = {
     "subject_locality": "",
     "subject_org":      "",
     "subject_ou":       "",
+    "aia_fetch_timeout": 10,   # seconds per AIA caIssuers download
 }
 
 

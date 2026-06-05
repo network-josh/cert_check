@@ -99,14 +99,22 @@ more Subject Alternative Names baked in.
 1. Enter the **Common Name** (e.g. `app.example.com`).
 2. Click **Seed CN + www** to pre-populate the SAN list with the CN and
    `www.CN`, or type additional hostnames/IPs and click **Add**.
-3. Choose key size, Key Usage flags, and Extended Key Usage.
-4. Select an output directory (defaults to the value in Settings).
-5. Optionally tick **Password-protect key** and enter a passphrase — this
-   writes an additional `.enc.key` alongside the plain `.key`.
+3. Choose a **Key Source**:
+   - **Generate new key** — choose a key size (2048 or 4096 bits).  Optionally
+     tick **Password-protect key** and enter a passphrase — this writes an
+     additional `.enc.key` alongside the plain `.key`.
+   - **Use existing key** — browse to an existing `.key` file.  If the key is
+     encrypted a passphrase field appears automatically.
+4. Choose Key Usage flags and Extended Key Usage.
+5. Select an output directory (defaults to the value in Settings).
 6. Click **Generate CSR + Key**.
 
 Output files are named from the CN (e.g. `app.example.com.key`,
-`app.example.com.csr`).
+`app.example.com.csr`).  A DER-encoded copy of the CSR
+(`app.example.com.csr.der`) is also written alongside the PEM file.
+
+Subject fields (O, OU, C, ST, L) are pre-populated from **Subject defaults**
+in Settings and can be overridden per-request.
 
 Use **Save Template** to store a named combination of subject defaults, key
 size, and usage flags for reuse.
@@ -177,24 +185,79 @@ openssl req -text -noout -in server.csr | grep -A2 "Subject Alternative"
 
 ### Chain Helper
 
-Loads a leaf certificate and scans a folder to find CA or intermediate
-certificates that could be its issuer, ranked by:
+The Chain Helper tab has three sections that share a single loaded leaf
+certificate.
+
+#### Scan Local Folder
+
+Scans a directory for certificates that could be chain certs for the loaded
+leaf, ranked by:
 
 - **Subject DN match** — the candidate's subject equals the leaf's issuer
 - **AKI/SKI match** — the leaf's Authority Key Identifier matches the
   candidate's Subject Key Identifier
 
+#### Build Chain via AIA
+
+Automatically fetches and assembles the full certificate chain (intermediates +
+root) by following the `caIssuers` URL in each certificate's Authority
+Information Access (AIA) extension.
+
+**How to use**
+
+1. Load the leaf certificate.
+2. Click **Build Chain**. The tool walks AIA URLs upward until it reaches a
+   self-signed root, logging each download URL.
+3. Choose an output directory (defaults to Settings → Default output directory).
+4. Optionally tick **Include leaf certificate in output PEM**.
+5. Click **Save Chain PEM** — the file is named `{CN}-chain.pem` and the path
+   is automatically filled into the Validate section.
+
+If a download fails the error message includes the exact URL and the manual
+`curl` + `openssl` commands needed to fetch the file by hand.
+
+#### Validate Chain
+
+Validates a chain PEM file against the loaded leaf certificate. Checks:
+
+| Check | What is verified |
+|---|---|
+| Chain connects to leaf | `chain[0]` subject matches leaf issuer (DN + AKI/SKI) |
+| Correct order / no gaps | Each cert issued by the next |
+| Root is self-signed | Last cert has `subject == issuer` |
+| All CA certs have `cA=TRUE` | `basicConstraints` on every chain cert |
+| No expired certificates | Every cert is within its validity window today |
+| Cryptographic signatures | Each cert signature verified against issuer's public key |
+| pathLenConstraint | Chain depth within declared limits |
+
+> Checks **not** performed: CRL/OCSP revocation, name constraints, policy
+> constraints.  For full RFC 5280 path validation use `openssl verify`.
+
+The validation report is shown in a scrollable text panel. Use **Copy Report**
+to copy it to the clipboard or **Export Report…** to save it as a `.txt` file
+(default filename includes a timestamp).
+
 **Equivalent OpenSSL commands**
 
 ```bash
-# Verify a certificate against a CA bundle
+# Verify leaf against a chain bundle
 openssl verify -CAfile chain.pem leaf.crt
 
-# Inspect issuer and Authority Key Identifier of a leaf cert
-openssl x509 -in leaf.crt -text -noout | grep -A3 "Issuer\|Authority Key"
+# Find the AIA caIssuers URL in a leaf cert
+openssl x509 -in leaf.crt -text -noout | grep -A2 "CA Issuers"
 
-# Inspect Subject Key Identifier of a potential chain cert
-openssl x509 -in intermediate.crt -text -noout | grep -A1 "Subject Key"
+# Manually download an intermediate cert (if AIA fetch fails)
+curl -o intermediate.der <URL from AIA output>
+openssl x509 -inform DER -in intermediate.der -out intermediate.pem
+
+# Assemble the chain manually (nearest-to-leaf first)
+cat intermediate.pem root.pem > chain.pem
+
+# List all certs in a chain PEM
+openssl crl2pkcs7 -nocrl -certfile chain.pem | openssl pkcs7 -print_certs -noout
+
+# Verify one cert's signature against its issuer
+openssl verify -partial_chain -CAfile issuer.pem cert.pem
 
 # Show full chain presented by a live server
 openssl s_client -connect hostname:443 -showcerts
@@ -205,17 +268,25 @@ openssl s_client -connect hostname:443 -showcerts
 ## Configuration
 
 All settings live in the **Settings** tab and are saved to
-`C:\Certs\cert_tool_app.json`.
+`{base_dir}\cert_tool_app.json` (default `C:\Certs\cert_tool_app.json`).
 
-| Setting                 | Default              | Description                                       |
-|-------------------------|----------------------|---------------------------------------------------|
-| Log directory           | `C:/Certs/logs`      | Where daily log files are written (not yet wired) |
-| Default output directory| `C:/Certs`           | Where generated keys and CSRs are saved           |
-| Templates directory     | `C:/Certs/templates` | Where CSR templates are stored as JSON            |
-| Theme                   | light                | `light` or `dark`                                 |
-| Show timestamps         | off                  | Prefix console lines with date/time               |
-| Default key size        | 2048                 | RSA key size used when generating new CSRs        |
-| Subject defaults        | (empty)              | Country, State, Locality, Org, OU pre-filled      |
+| Setting                  | Default              | Description                                        |
+|--------------------------|----------------------|----------------------------------------------------|
+| Base directory           | `C:/Certs`           | Root for all other paths; see network-share note below |
+| Log directory            | `C:/Certs/logs`      | Where daily log files are written (not yet wired)  |
+| Default output directory | `C:/Certs`           | Where generated keys and CSRs are saved            |
+| Templates directory      | `C:/Certs/templates` | Where CSR templates are stored as JSON             |
+| Theme                    | light                | `light` or `dark`                                  |
+| Show timestamps          | off                  | Prefix console lines with date/time                |
+| Default key size         | 2048                 | RSA key size used when generating new CSRs         |
+| Subject defaults         | (empty)              | Country, State, Locality, Org, OU pre-filled       |
+| AIA fetch timeout        | 10                   | Seconds to wait per AIA caIssuers download         |
+
+**Network share / roaming base directory** — if you change Base directory to a
+UNC path or a non-default location, the new path is recorded in
+`C:\Certs\cert_tool_basedir.txt`.  On subsequent launches the tool reads that
+pointer file first so it can find the config in the alternate location without
+any extra setup.
 
 ---
 
@@ -233,7 +304,7 @@ cert_check/
 │   ├── san_ops.py         SAN parsing and MS PKI string formatting
 │   ├── csr_templates.py   Template persistence
 │   ├── cert_inspector.py  Deep cert comparison (CN, SAN, expiry, extensions)
-│   ├── chain_ops.py       Chain certificate discovery
+│   ├── chain_ops.py       AIA chain builder, chain validator, local folder scan
 │   └── errors.py          Exception types
 ├── ui/
 │   ├── main_window.py     Main window and console log
@@ -252,6 +323,8 @@ cert_check/
 
 - Only RSA keys are fully supported for modulus matching.  ECDSA/EdDSA
   certificates can be loaded and inspected but will show `MD5: (unreadable)`.
+- Encrypted private keys are auto-detected in every tab — a passphrase field
+  appears automatically when one is loaded; no manual mode-switch is needed.
 - The tool does not submit CSRs or connect to any CA automatically.
 - Future goal: direct integration with F5, Palo Alto, Cisco, and similar
   network devices to validate and push certificates.
