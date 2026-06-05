@@ -7,6 +7,8 @@ A Windows desktop tool for day-to-day PKI certificate work:
 - Generate RSA key pairs and CSRs with multiple Subject Alternative Names
 - Build the SAN string for Microsoft PKI (ADCS) web enrollment
 - Find chain/CA certificates that match a given leaf certificate
+- Connect to a live host and run 15 TLS/certificate checks with a coloured
+  dashboard and exportable report
 
 All certificate operations use the Python `cryptography` library, which links
 against OpenSSL on Windows. No separate OpenSSL installation is required.
@@ -44,12 +46,13 @@ Or extract the ZIP and `cd` into it.
 pip install -r requirements.txt
 ```
 
-This installs two packages:
+This installs three packages:
 
-| Package        | Purpose                                      |
-|----------------|----------------------------------------------|
-| `cryptography` | All certificate operations (wraps OpenSSL)   |
-| `PySide6`      | Desktop UI framework                         |
+| Package        | Purpose                                                        |
+|----------------|----------------------------------------------------------------|
+| `cryptography` | All certificate operations (wraps OpenSSL)                     |
+| `pyopenssl`    | Live TLS connections — full chain and OCSP staple retrieval    |
+| `PySide6`      | Desktop UI framework                                           |
 
 ### 4. Run
 
@@ -265,6 +268,69 @@ openssl s_client -connect hostname:443 -showcerts
 
 ---
 
+### Site Verification
+
+Connects to a live host over TLS and runs 15 checks.  The **Checks** panel
+doubles as a colour-coded dashboard after each run — individual check labels and
+group headers turn green / amber / red based on results.
+
+**How to use**
+
+1. Enter the **Hostname** (used for SNI and certificate name matching).
+2. Optionally enter an **IP address** to connect directly without DNS (SNI still
+   uses the hostname).
+3. Adjust **Port** (default 443) and **Expiry warn** threshold.
+4. Select which checks to run using the grouped checkboxes.  **All** at the top
+   of each group is a select-all toggle.
+5. Click **Run Checks**.  Results appear in the report panel; the checkbox labels
+   update with their status colour simultaneously.
+6. Use **Copy Report** or **Export Report…** to save the results as a `.txt`
+   record.
+
+**Checks performed**
+
+| Group | Check | Pass condition |
+|---|---|---|
+| General | Certificate expiration | Not expired; warn if within threshold |
+| General | SAN / CN match | Hostname covered by a SAN (or CN fallback) |
+| General | Self-signed detection | Certificate has a distinct issuer |
+| General | Full chain served | Server sends at least one intermediate |
+| General | Chain order | Each cert issued by the next |
+| Security | Trusted CA | Chain verified by system trust store |
+| Security | Weak signature algorithm | Not SHA-1 or MD5 |
+| Security | Key size | RSA ≥ 2048 bits, ECC ≥ 256 bits |
+| Revocation | OCSP stapling | Staple present and valid (absent = configurable INFO/WARN) |
+| Revocation | OCSP revocation | OCSP responder returns GOOD |
+| Revocation | CRL revocation | Serial not in CRL |
+| TLS Versions | TLS 1.0 rejected | Server rejects TLS 1.0 |
+| TLS Versions | TLS 1.1 rejected | Server rejects TLS 1.1 |
+| TLS Versions | TLS 1.2 supported | Server accepts TLS 1.2 |
+| TLS Versions | TLS 1.3 supported | Server accepts TLS 1.3 (INFO if absent, not FAIL) |
+
+TLS version probes show **SKIP** when the local OpenSSL has that version disabled
+at the system level.
+
+**Equivalent OpenSSL commands**
+
+```bash
+# Connect and show leaf certificate:
+openssl s_client -connect example.com:443 -servername example.com < /dev/null
+
+# Show full chain as served:
+openssl s_client -connect example.com:443 -servername example.com -showcerts < /dev/null
+
+# Check OCSP stapling:
+openssl s_client -connect example.com:443 -servername example.com -status < /dev/null
+
+# Probe a specific TLS version (-tls1 / -tls1_1 / -tls1_2 / -tls1_3):
+openssl s_client -connect example.com:443 -servername example.com -tls1_2 < /dev/null
+
+# OCSP revocation check:
+openssl ocsp -issuer issuer.pem -cert leaf.pem -url <ocsp_url> -text -noverify
+```
+
+---
+
 ## Configuration
 
 All settings live in the **Settings** tab and are saved to
@@ -281,6 +347,9 @@ All settings live in the **Settings** tab and are saved to
 | Default key size         | 2048                 | RSA key size used when generating new CSRs         |
 | Subject defaults         | (empty)              | Country, State, Locality, Org, OU pre-filled       |
 | AIA fetch timeout        | 10                   | Seconds to wait per AIA caIssuers download         |
+| Site check timeout       | 10                   | Seconds per network call in site verification      |
+| Site expiry warn threshold | 30                 | Days remaining before expiry triggers a WARN       |
+| OCSP staple absent       | INFO                 | Severity when server sends no OCSP staple (`INFO` or `WARN`) |
 
 **Network share / roaming base directory** — if you change Base directory to a
 UNC path or a non-default location, the new path is recorded in
@@ -305,6 +374,7 @@ cert_check/
 │   ├── csr_templates.py   Template persistence
 │   ├── cert_inspector.py  Deep cert comparison (CN, SAN, expiry, extensions)
 │   ├── chain_ops.py       AIA chain builder, chain validator, local folder scan
+│   ├── site_ops.py        Live-site TLS checks (15 checks, report formatter)
 │   └── errors.py          Exception types
 ├── ui/
 │   ├── main_window.py     Main window and console log
@@ -312,6 +382,7 @@ cert_check/
 │   ├── csr_tab.py         Create CSR tab
 │   ├── san_tab.py         SAN Generator tab
 │   ├── chain_tab.py       Chain Helper tab
+│   ├── site_tab.py        Site Verification tab
 │   ├── settings_tab.py    Settings tab
 │   └── types.py           Shared type stubs
 └── archive/               Original single-file scripts (reference only)

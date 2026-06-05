@@ -16,6 +16,7 @@ from ui.verify_tab import VerifyTab
 from ui.san_tab import SanTab
 from ui.csr_tab import CsrTab
 from ui.chain_tab import ChainTab
+from ui.site_tab import SiteTab
 from ui.settings_tab import SettingsTab
 
 
@@ -42,12 +43,14 @@ class MainWindow(QMainWindow):
         self.san_tab      = SanTab(self.log_emitter)
         self.csr_tab      = CsrTab(self.log_emitter)
         self.chain_tab    = ChainTab(self.log_emitter)
+        self.site_tab     = SiteTab(self.log_emitter)
         self.settings_tab = SettingsTab(self.app_config, self.on_app_config_changed, self.log_emitter)
 
         self.tabs.addTab(self.verify_tab,   "Verify Set")
         self.tabs.addTab(self.san_tab,      "SAN Generator")
         self.tabs.addTab(self.csr_tab,      "Create CSR")
         self.tabs.addTab(self.chain_tab,    "Chain Helper")
+        self.tabs.addTab(self.site_tab,     "Site Verification")
         self.tabs.addTab(self.settings_tab, "Settings")
 
         # ── Console dock ──────────────────────────────────────────────────────

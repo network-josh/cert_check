@@ -42,7 +42,10 @@ _STATIC_DEFAULTS: Dict[str, Any] = {
     "subject_locality": "",
     "subject_org":      "",
     "subject_ou":       "",
-    "aia_fetch_timeout": 10,   # seconds per AIA caIssuers download
+    "aia_fetch_timeout": 10,        # seconds per AIA caIssuers download
+    "site_check_timeout": 10,       # seconds per network call in site verification
+    "site_expiry_warn_days": 30,    # warn threshold for cert expiry in site checks
+    "site_ocsp_staple_severity": "INFO",  # INFO or WARN when staple is absent
 }
 
 

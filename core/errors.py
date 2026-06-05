@@ -9,6 +9,9 @@ class EncryptedKeyError(CertToolError):
 class UnsupportedFormatError(CertToolError):
     """Thrown when a file does not appear to be cert/key/CSR."""
 
+class SiteVerificationError(CertToolError):
+    """Raised when a live-site TLS connection or check fails fatally."""
+
 class ChainFetchError(CertToolError):
     """Raised when an AIA certificate download fails."""
     def __init__(self, url: str, reason: str):
